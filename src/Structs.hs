@@ -56,11 +56,14 @@ parseDCDPayload (Header 0xCC header_length _) = do
   let cnt = fromIntegral $ (header_length - 4) `div` 4
   let getAddressValue = (,) <$> getWord32le <*> getWord32le
   DCD_Write <$> sequence (replicate cnt getAddressValue)
+
 parseDCDPayload (Header 0xCF header_length _) =
   DCD_Check <$> getWord32le <*> getWord32le
             <*> if | header_length == 16 -> Just <$> getWord32le
                    | otherwise -> return Nothing
+
 parseDCDPayload (Header 0xC0 _ _) = return DCD_NOP
+
 parseDCDPayload (Header 0xB2 header_length _) = do
   let cnt = fromIntegral $ (header_length - 4) `div` 4
   DCD_Unlock <$> sequence (replicate cnt getWord32le)

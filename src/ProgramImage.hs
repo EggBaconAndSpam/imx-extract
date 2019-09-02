@@ -1,10 +1,12 @@
 module ProgramImage where
 
+import Control.Monad.Reader
 import Data.Bits
 import Data.Word
 
 import Parsing
 import qualified Structs
+import qualified Text.Megaparsec as Megaparsec
 
 class FromStruct a where
   type StructType a
@@ -55,7 +57,35 @@ instance FromStruct DCDCommand where
 
 data DCD = DCD [DCDCommand]
 
+instance FromStruct DCD where
+  type StructType DCD = Structs.DCD
+  fromStruct (Structs.DCD header cmds) = DCD (map fromStruct cmds)
+
 data BootData =
   BootData {
     startOffset :: Word32,
     plugin :: Bool}  -- stub!
+
+instance FromStruct BootData where
+  type StructType BootData = Structs.Boot_Data
+  fromStruct (Structs.Boot_Data off _ plug) =
+    BootData off (if | plug == 0 -> False
+                     | otherwise -> True)
+
+data ProgramImage = ProgramImage BootData DCD
+
+extractProgramImage :: ByteString -> Maybe ProgramImage
+extractProgramImage = runReader $ do
+  file <- ask
+  eResult <- Megaparsec.runParserT parseProgramImage "" file
+  case eResult of
+    Right pi -> return (Just pi)
+    _ -> return Nothing
+ where
+  parseProgramImage = do
+    header :: Structs.IVT <- Structs.struct
+    seek (fromIntegral $ Structs.ivt_boot_data header)
+    bootData :: BootData <- pure fromStruct <*> Structs.struct
+    seek (fromIntegral $ Structs.ivt_dcd header)
+    dcd :: DCD <- pure fromStruct <*> Structs.struct
+    return (ProgramImage bootData dcd)
