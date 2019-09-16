@@ -9,6 +9,8 @@ import Text.Printf
 import Parsing
 import qualified Structs
 
+-- A more semantic representation of a `Struct` (see Struct.hs), with a
+-- conversion function.
 class FromStruct a where
   type StructType a
   fromStruct :: StructType a -> a
@@ -18,17 +20,15 @@ data DCDWriteMode = Write | MaskSet | MaskClear
 data DCDCheckMode = CheckClear | CheckSet | CheckAnySet | CheckAnyClear
 
 data DCDCommand =
-  DCDWrite {
-    byteWidth :: Int,
-    writeMode :: DCDWriteMode,
-    -- (address, value) pairs
-    associations :: [(Word32, Word32)]} |
-  DCDCheck {
-    byteWidth :: Int,
-    checkMode :: DCDCheckMode,
-    checkAddress :: Word32,
-    checkMask :: Word32,
-    count :: Maybe Word32 } |
+  DCDWrite { byteWidth :: Int,
+             writeMode :: DCDWriteMode,
+             -- (address, value) pairs
+             associations :: [(Word32, Word32)] } |
+  DCDCheck { byteWidth :: Int,
+             checkMode :: DCDCheckMode,
+             checkAddress :: Word32,
+             checkMask :: Word32,
+             count :: Maybe Word32 } |
   DCDNOP |
   DCDUnlock  -- stub
 
@@ -64,12 +64,12 @@ instance FromStruct DCDCommand where
               | testBit params 3 && not (testBit params 4) = MaskClear
               | otherwise = Write
 
-  -- TODO!
+  -- TBD (not by me though); not used by the Tolino images.
   fromStruct (Structs.DCD_Command header (Structs.DCD_Check _ _ _)) = undefined
 
   fromStruct (Structs.DCD_Command header (Structs.DCD_NOP)) = DCDNOP
 
-  -- stub
+  -- Not even supported by imximage.
   fromStruct (Structs.DCD_Command header (Structs.DCD_Unlock _)) = DCDUnlock
 
 data DCD = DCD [DCDCommand]
@@ -81,35 +81,22 @@ instance FromStruct DCD where
   type StructType DCD = Structs.DCD
   fromStruct (Structs.DCD header cmds) = DCD (map fromStruct cmds)
 
-data BootData =
-  BootData {
-    startOffset :: Word32,
-    plugin :: Bool}  -- stub!
-
-instance FromStruct BootData where
-  type StructType BootData = Structs.Boot_Data
-  fromStruct (Structs.Boot_Data off _ plug) =
-    BootData off (if | plug == 0 -> False
-                     | otherwise -> True)
-
-data ProgramImage = ProgramImage BootData DCD
-
-instance Show ProgramImage where
-  show (ProgramImage _ dcd) = "BOOT_FROM sd\n\n" ++ show dcd
-
-extractProgramImage :: Int -> Int -> ByteString -> Maybe ProgramImage
-extractProgramImage headerOffset textBase = runReader $ do
-  file <- ask
-  eResult <- Megaparsec.runParserT parseProgramImage "" file
-  case eResult of
+-- Given an image dump, extract the DCD. Use the show instance to convert to the
+-- format used by imximage.
+extractDCD :: Int -> Int -> ByteString -> Maybe DCD
+extractDCD headerOffset textBase img = flip runReader img $ do
+  result <- Megaparsec.runParserT parseDCDFromImage "" img
+  case result of
     Right pi -> return (Just pi)
-    Left errs -> error (show errs)
+    Left _ -> return Nothing
  where
-  parseProgramImage = do
+  parseDCDFromImage = do
     seek headerOffset
     header :: Structs.IVT <- Structs.struct
-    seek $ fromIntegral (Structs.ivt_boot_data header) - textBase
-    bootData :: BootData <- pure fromStruct <*> Structs.struct
     seek $ fromIntegral (Structs.ivt_dcd header) - textBase
     dcd :: DCD <- pure fromStruct <*> Structs.struct
-    return (ProgramImage bootData dcd)
+    return dcd
+
+-- headerBase = 0x400 and textbase = 0x8780000 for SD/MMC images on i.mx6
+extractDCDFromSDImage :: ByteString -> Maybe DCD
+extractDCDFromSDImage = extractDCD 0x400 0x87800000
