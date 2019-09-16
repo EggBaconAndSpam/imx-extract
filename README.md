@@ -1,4 +1,4 @@
-# imx-extract-program-image
+# imx-extract
 
 An "interactive library" (read: I couldn't be bothered to wrap this into a command-line application) for extracting the *Device Configuration Data* from an i.mx boot image. Doesn't handle some of the more esoteric features.
 
