@@ -1,11 +1,17 @@
+{- This module contains the datatypes we are going to be parsing in their
+physical representation, mirroring the presentation in the IMX manual. These are
+translateed, in ProgramImage.hs, to a more semantic representations. -}
 module Structs where
 
+import Data.ByteString (ByteString)
 import Data.Word
+import qualified Data.ByteString as ByteString
+import qualified Text.Megaparsec as Megaparsec
 
 import Parsing
 
 class Struct a where
-  struct :: ParseT m a
+  struct :: ParserT m a
 
 data Header =
   Header {
@@ -51,22 +57,22 @@ data DCD_Command_Payload =
 
 data DCD_Command = DCD_Command Header DCD_Command_Payload
 
-parseDCDPayload :: Header -> ParseT m DCD_Command_Payload
+parseDCDPayload :: Header -> ParserT m DCD_Command_Payload
 parseDCDPayload (Header 0xCC header_length _) = do
-  let cnt = fromIntegral $ (header_length - 4) `div` 4
-  let getAddressValue = (,) <$> getWord32le <*> getWord32le
+  let cnt = fromIntegral $ (header_length - 4) `div` 8
+  let getAddressValue = (,) <$> getWord32be <*> getWord32be
   DCD_Write <$> sequence (replicate cnt getAddressValue)
 
 parseDCDPayload (Header 0xCF header_length _) =
-  DCD_Check <$> getWord32le <*> getWord32le
-            <*> if | header_length == 16 -> Just <$> getWord32le
+  DCD_Check <$> getWord32be <*> getWord32be
+            <*> if | header_length == 16 -> Just <$> getWord32be
                    | otherwise -> return Nothing
 
 parseDCDPayload (Header 0xC0 _ _) = return DCD_NOP
 
 parseDCDPayload (Header 0xB2 header_length _) = do
   let cnt = fromIntegral $ (header_length - 4) `div` 4
-  DCD_Unlock <$> sequence (replicate cnt getWord32le)
+  DCD_Unlock <$> sequence (replicate cnt getWord32be)
 
 instance Struct DCD_Command where
   struct = do

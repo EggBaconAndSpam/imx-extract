@@ -3,10 +3,11 @@ module ProgramImage where
 import Control.Monad.Reader
 import Data.Bits
 import Data.Word
+import qualified Text.Megaparsec as Megaparsec
+import Text.Printf
 
 import Parsing
 import qualified Structs
-import qualified Text.Megaparsec as Megaparsec
 
 class FromStruct a where
   type StructType a
@@ -30,6 +31,22 @@ data DCDCommand =
     count :: Maybe Word32 } |
   DCDNOP |
   DCDUnlock  -- stub
+
+instance Show DCDCommand where
+  show (DCDWrite width mode assocs) = concatMap go assocs
+   where
+    mode' = case mode of
+        Write -> "DATA"
+        MaskSet -> "SET_BIT"
+        MaskClear -> "CLR_BIT"
+    go (addr, dat) = printf "%s %d 0x%08X 0x%08X\n" mode' width addr dat
+
+  show (DCDCheck width mode addr mask Nothing) =
+    printf "%s %d 0x%08X 0x%08X\n" mode' width addr mask
+   where
+    mode' = case mode of
+        CheckSet -> "CHECK_BITS_SET"
+        CheckClear -> "CHECK_BITS_CLR"
 
 instance FromStruct DCDCommand where
   type StructType DCDCommand = Structs.DCD_Command
@@ -57,6 +74,9 @@ instance FromStruct DCDCommand where
 
 data DCD = DCD [DCDCommand]
 
+instance Show DCD where
+  show (DCD cmds) = concatMap show cmds
+
 instance FromStruct DCD where
   type StructType DCD = Structs.DCD
   fromStruct (Structs.DCD header cmds) = DCD (map fromStruct cmds)
@@ -74,18 +94,22 @@ instance FromStruct BootData where
 
 data ProgramImage = ProgramImage BootData DCD
 
-extractProgramImage :: ByteString -> Maybe ProgramImage
-extractProgramImage = runReader $ do
+instance Show ProgramImage where
+  show (ProgramImage _ dcd) = "BOOT_FROM sd\n\n" ++ show dcd
+
+extractProgramImage :: Int -> Int -> ByteString -> Maybe ProgramImage
+extractProgramImage headerOffset textBase = runReader $ do
   file <- ask
   eResult <- Megaparsec.runParserT parseProgramImage "" file
   case eResult of
     Right pi -> return (Just pi)
-    _ -> return Nothing
+    Left errs -> error (show errs)
  where
   parseProgramImage = do
+    seek headerOffset
     header :: Structs.IVT <- Structs.struct
-    seek (fromIntegral $ Structs.ivt_boot_data header)
+    seek $ fromIntegral (Structs.ivt_boot_data header) - textBase
     bootData :: BootData <- pure fromStruct <*> Structs.struct
-    seek (fromIntegral $ Structs.ivt_dcd header)
+    seek $ fromIntegral (Structs.ivt_dcd header) - textBase
     dcd :: DCD <- pure fromStruct <*> Structs.struct
     return (ProgramImage bootData dcd)
