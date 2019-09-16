@@ -1,6 +1,6 @@
 {- This module contains the datatypes we are going to be parsing in their
 physical representation, mirroring the presentation in the IMX manual. These are
-translateed, in ProgramImage.hs, to a more semantic representations. -}
+translated, in ProgramImage.hs, to a more semantic representation. -}
 module Structs where
 
 import Data.ByteString (ByteString)
